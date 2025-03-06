@@ -27,7 +27,7 @@ async function startWhatsApp() {
     sock.ev.on("creds.update", saveCreds);
 
     sock.ev.on("connection.update", async (update) => {
-      const { connection, lastDisconnect, qr, pairingCode } = update;
+      const { connection, lastDisconnect, pairingCode } = update;
 
       if (pairingCode) {
         console.log(`🔗 Gunakan kode ini untuk login: ${pairingCode}`);
@@ -49,8 +49,18 @@ async function startWhatsApp() {
       }
     });
 
+    // 🔹 Event listener untuk menerima pesan masuk
+    sock.ev.on("messages.upsert", (m) => {
+      const msg = m.messages[0];
+      if (!msg.message) return;
+      const sender = msg.key.remoteJid;
+      const messageContent = msg.message.conversation || msg.message.extendedTextMessage?.text;
+      
+      console.log(`📩 Pesan masuk dari ${sender}: ${messageContent}`);
+    });
+
     // 🔹 Pastikan requestPairingCode dipanggil hanya jika perlu
-    await new Promise((resolve) => setTimeout(resolve, 3000)); // Delay agar koneksi siap
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
     if (!sock.authState.creds.registered) {
       const number = process.env.WA_PHONE_NUMBER;
@@ -75,7 +85,7 @@ app.get("/", (req, res) => {
   res.send("🚀 WhatsApp API Running...");
 });
 
-// 📩 API untuk mengirim pesan
+// 📩 API untuk mengirim pesan ke nomor individu
 app.post("/send-message", async (req, res) => {
   try {
     if (!sock) {
@@ -103,6 +113,28 @@ app.post("/send-message", async (req, res) => {
   }
 });
 
+// 📢 API untuk mengirim pesan ke grup
+app.post("/send-group-message", async (req, res) => {
+  try {
+    if (!sock) {
+      return res.status(500).json({ success: false, error: "WhatsApp belum terhubung" });
+    }
+
+    const { groupId, message } = req.body;
+    if (!groupId || !message) {
+      return res.status(400).json({ success: false, error: "ID grup dan pesan wajib diisi" });
+    }
+
+    const chatId = `${groupId}@g.us`;
+
+    await sock.sendMessage(chatId, { text: message });
+    res.json({ success: true, message: "Pesan berhasil dikirim ke grup" });
+  } catch (error) {
+    console.error("❌ ERROR saat mengirim pesan ke grup:", error);
+    res.status(500).json({ success: false, error: "Gagal mengirim pesan ke grup" });
+  }
+});
+
 // 🔐 API untuk logout
 app.get("/logout", async (req, res) => {
   try {
@@ -112,7 +144,6 @@ app.get("/logout", async (req, res) => {
       message: "Session dihapus, scan Pair Code lagi.",
     });
 
-    // Jangan gunakan process.exit(0) karena bisa menyebabkan server mati.
     console.log("⚠️ Silakan restart server secara manual jika diperlukan.");
   } catch (error) {
     console.error("❌ ERROR saat logout:", error);
