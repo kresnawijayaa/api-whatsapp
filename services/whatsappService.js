@@ -1,11 +1,8 @@
 const makeWASocket = require("@whiskeysockets/baileys").default;
 const { useMultiFileAuthState } = require("@whiskeysockets/baileys");
-const fs = require("fs-extra");
 
 const SESSION_PATH = "baileys_auth";
-const supabase = require("../supabaseClient");
-
-let sock = null;
+let sock; // Variabel global untuk socket WhatsApp
 
 async function startWhatsApp() {
   try {
@@ -14,7 +11,7 @@ async function startWhatsApp() {
 
     sock = makeWASocket({
       auth: state,
-      printQRInTerminal: false, // Matikan tampilan QR Code di terminal
+      printQRInTerminal: false, // Jangan tampilkan QR Code
     });
 
     sock.ev.on("creds.update", saveCreds);
@@ -32,11 +29,9 @@ async function startWhatsApp() {
 
       if (connection === "close") {
         console.error("🔄 Connection closed:", lastDisconnect?.error);
-        const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== 401;
-        
-        if (shouldReconnect) {
+        if (lastDisconnect?.error?.output?.statusCode !== 401) {
           console.log("🔁 Mencoba reconnect...");
-          setTimeout(startWhatsApp, 5000); // Tunggu 5 detik sebelum mencoba reconnect
+          startWhatsApp(); // Reconnect jika bukan error 401
         } else {
           console.log("⚠️ Session invalid, menghapus session...");
           fs.removeSync(SESSION_PATH);
@@ -44,36 +39,19 @@ async function startWhatsApp() {
       }
     });
 
-    sock.ev.on("messages.upsert", async (m) => {
+    // 🔹 Event listener untuk menerima pesan masuk
+    sock.ev.on("messages.upsert", (m) => {
       const msg = m.messages[0];
-      if (!msg?.message) return;
-
-      const sender = msg.key.remoteJid.replace("@s.whatsapp.net", "");
-      const messageContent = msg.message.conversation || msg.message.extendedTextMessage?.text;
+      if (!msg.message) return;
+      const sender = msg.key.remoteJid;
+      const messageContent =
+        msg.message.conversation || msg.message.extendedTextMessage?.text;
 
       console.log(`📩 Pesan masuk dari ${sender}: ${messageContent}`);
-
-      if (messageContent) {
-        const { data, error } = await supabase
-          .from("approval_requests")
-          .select("*")
-          .eq("phone_number", sender)
-          .eq("approval_code", messageContent)
-          .gt("expires_at", new Date().toISOString())
-          .order("created_at", { ascending: false })
-          .limit(1);
-
-        if (error) {
-          console.error("❌ ERROR saat memeriksa kode approval:", error);
-          return;
-        }
-
-        if (data.length > 0) {
-          await sock.sendMessage(msg.key.remoteJid, { text: "✅ Approval berhasil! Terima kasih." });
-          await supabase.from("approval_requests").delete().eq("id", data[0].id);
-        }
-      }
     });
+
+    // 🔹 Pastikan requestPairingCode dipanggil hanya jika perlu
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
     if (!sock.authState.creds.registered) {
       const number = process.env.WA_PHONE_NUMBER;
@@ -94,7 +72,7 @@ async function startWhatsApp() {
 }
 
 function getSock() {
-    return sock;
-  }
+  return sock;
+}
 
 module.exports = { startWhatsApp, getSock };

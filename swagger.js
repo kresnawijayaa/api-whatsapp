@@ -9,7 +9,7 @@ const options = {
       version: "1.0.0",
       description: "API untuk mengelola WhatsApp",
     },
-    servers: [{ url: "http://localhost:3000" }],
+    servers: [{ url: process.env.NODE_ENV === "production" ? "https://vps.kresnawijaya.web.id" : "http://localhost:3000" }],
   },
   apis: ["./routes/*.js"], // Sesuaikan path ini
 };
